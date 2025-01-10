@@ -126,7 +126,7 @@ Then we can run the website with the following command.
 python pythonwebsite.py
 ```
 
-# Output
+### Output
 
 ```bash
 * Serving Flask app "myproject" (lazy loading)
