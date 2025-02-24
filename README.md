@@ -1,337 +1,285 @@
 # Python-HTTPS
-Create HTTPS websites with python
 
+Easily create HTTPS websites with Python using Flask, uWSGI, and Nginx.
+
+---
+
+## Table of Contents
+
+1. [Initial Server Setup](#initial-server-setup)
+2. [Installing Python and Dependencies](#installing-python-and-dependencies)
+3. [Setting Up the Flask Application](#setting-up-the-flask-application)
+4. [Testing the Flask Application (Optional)](#testing-the-flask-application-optional)
+5. [Configuring uWSGI](#configuring-uwsgi)
+6. [Setting Up Systemd Service](#setting-up-systemd-service)
+7. [Configuring Nginx](#configuring-nginx)
+8. [Enabling HTTPS with Certbot](#enabling-https-with-certbot)
+9. [Final Steps](#final-steps)
 
-# Initial server settup 
+---
 
-Firstly we are going to ssh into the server.
+## Initial Server Setup
 
-```bash
-ssh root@your_server_ip
-```
+1. **SSH into the server**:
+   ```bash
+   ssh root@your_server_ip
+   ```
+
+2. **Create a new user**:
+   ```bash
+   adduser pythonwebsite
+   ```
 
-Now we are going to add a user to the server. For this example we will create a user called "pythonwebsite".
+3. **Add the user to the `sudo` group**:
+   ```bash
+   usermod -aG sudo pythonwebsite
+   ```
 
-```bash
-adduser pythonwebsite
-```
+4. **Configure the firewall to allow SSH access**:
+   ```bash
+   ufw allow OpenSSH
+   ```
 
-Now we are going to add the user to the sudo group.
+5. **Enable the firewall**:
+   ```bash
+   ufw enable
+   ```
 
-```bash
-usermod -aG sudo sammy
-```
+6. **Check the firewall status**:
+   ```bash
+   ufw status
+   ```
 
-Now we are going to configure the firewall to allow SSH access to the server.
+7. **Switch to the new user**:
+   ```bash
+   ssh pythonwebsite@your_server_ip
+   ```
 
-```bash
-ufw allow OpenSSH
-```
+---
 
-Now we are going to enable the firewall.
+## Installing Python and Dependencies
 
-```bash
-ufw enable
-```
+1. **Update the local package index**:
+   ```bash
+   sudo apt update
+   ```
 
-- To check the status of the firewall, run the following command:
-```bash
-ufw status
-```
+2. **Install Python and required dependencies**:
+   ```bash
+   sudo apt install python3-pip python3-dev build-essential libssl-dev libffi-dev python3-setuptools
+   ```
+
+3. **Install the virtual environment package**:
+   ```bash
+   sudo apt install python3-venv
+   ```
 
-Now we have created a user and configured the firewall. We can now ssh into this user.
+---
 
-```bash
-ssh pythonwebsite@your_server_ip
-```
+## Setting Up the Flask Application
 
-Now we are going to update the local package index.
+1. **Create a directory for the project**:
+   ```bash
+   mkdir ~/pythonwebsite
+   cd ~/pythonwebsite
+   ```
 
-```bash
-sudo apt update
-```
+2. **Set up a virtual environment**:
+   ```bash
+   python3 -m venv pythonwebsiteenv
+   source pythonwebsiteenv/bin/activate
+   ```
 
-Now we are going to install the python and pip dependicies.
+3. **Install required Python packages**:
+   ```bash
+   pip install wheel uwsgi flask
+   ```
 
-```bash
-sudo apt install python3-pip python3-dev build-essential libssl-dev libffi-dev python3-setuptools
-```
+4. **Create a basic Flask application**:
+   ```bash
+   nano ~/pythonwebsite/pythonwebsite.py
+   ```
 
-Now we are going to install the virtual environment.
+   Example code:
+   ```python
+   from flask import Flask
+   app = Flask(__name__)
 
-```bash
-sudo apt install python3-venv
-```
+   @app.route("/")
+   def hello():
+       return "<h1>Hello World!</h1>"
 
-Now we are going to create the parent directory for our website and go into it.
+   if __name__ == "__main__":
+       app.run(host='0.0.0.0')
+   ```
+
+---
 
-```bash
-mkdir ~/pythonwebsite
-```
+## Testing the Flask Application (Optional)
 
-```bash
-cd ~/pythonwebsite
-```
+1. **Allow port 5000 in the firewall**:
+   ```bash
+   sudo ufw allow 5000
+   ```
 
-Now we are going to create the virtual environment.
+2. **Run the Flask application**:
+   ```bash
+   python pythonwebsite.py
+   ```
 
-```bash
-python -m venv pythonwebsiteenv
-```
+3. **Access the application**: Open your browser and navigate to `http://your_server_ip:5000`.
 
-Now we are going to activate the virtual environment.
+---
 
-```bash
-source pythonwebsiteenv/bin/activate
-```
+## Configuring uWSGI
+
+1. **Create a WSGI entry point**:
+   ```bash
+   nano ~/pythonwebsite/wsgi.py
+   ```
+
+   Example code:
+   ```python
+   from pythonwebsite import app
+
+   if __name__ == "__main__":
+       app.run()
+   ```
+
+2. **Test the WSGI entry point**:
+   ```bash
+   uwsgi --socket 0.0.0.0:5000 --protocol=http -w wsgi:app
+   ```
+
+3. **Deactivate the virtual environment**:
+   ```bash
+   deactivate
+   ```
+
+4. **Create a uWSGI configuration file**:
+   ```bash
+   nano ~/pythonwebsite/pythonwebsite.ini
+   ```
+
+   Example configuration:
+   ```ini
+   [uwsgi]
+   module = wsgi:app
+
+   master = true
+   processes = 5
+
+   socket = pythonwebsite.sock
+   chmod-socket = 660
+   vacuum = true
+
+   die-on-term = true
+   ```
+
+---
+
+## Setting Up Systemd Service
 
-Now we are going to install the required packages.
+1. **Create a systemd service file**:
+   ```bash
+   sudo nano /etc/systemd/system/pythonwebsite.service
+   ```
 
-```bash
-pip install wheel
-pip install uwsgi flask
-```
+   Example configuration:
+   ```ini
+   [Unit]
+   Description=uWSGI instance to serve pythonwebsite
+   After=network.target
 
-Now we are going to create a basic website.
+   [Service]
+   User=pythonwebsite
+   Group=www-data
+   WorkingDirectory=/home/pythonwebsite/pythonwebsite
+   Environment="PATH=/home/pythonwebsite/pythonwebsite/pythonwebsiteenv/bin"
+   ExecStart=/home/pythonwebsite/pythonwebsite/pythonwebsiteenv/bin/uwsgi --ini pythonwebsite.ini
 
-```bash
-nano ~/pythonwebsite/pythonwebsite.py
-```
+   [Install]
+   WantedBy=multi-user.target
+   ```
 
-Here is some example code for the website.
+2. **Start and enable the service**:
+   ```bash
+   sudo systemctl start pythonwebsite
+   sudo systemctl enable pythonwebsite
+   ```
 
-```python
-from flask import Flask
-app = Flask(__name__)
+3. **Check the service status**:
+   ```bash
+   sudo systemctl status pythonwebsite
+   ```
 
-@app.route("/")
-def hello():
-    return "<h1>Hello World!</h1>"
+---
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0')
-```
+## Configuring Nginx
 
-# testing example (optionial)
+1. **Create an Nginx configuration file**:
+   ```bash
+   sudo nano /etc/nginx/sites-available/pythonwebsite
+   ```
 
-Before we can test the website we need to allow port 5000 in the firewall.
+   Example configuration:
+   ```nginx
+   server {
+       listen 80;
+       server_name your_domain www.your_domain;
 
-```bash
-sudo ufw allow 5000
-```
+       location / {
+           include uwsgi_params;
+           uwsgi_pass unix:/home/pythonwebsite/pythonwebsite/pythonwebsite.sock;
+       }
+   }
+   ```
 
-Then we can run the website with the following command.
+2. **Enable the site**:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/pythonwebsite /etc/nginx/sites-enabled
+   ```
 
-```bash
-python pythonwebsite.py
-```
+3. **Remove the default site**:
+   ```bash
+   sudo rm /etc/nginx/sites-enabled/default
+   ```
 
-### Output
+4. **Restart Nginx**:
+   ```bash
+   sudo systemctl restart nginx
+   ```
 
-```bash
-* Serving Flask app "myproject" (lazy loading)
- * Environment: production
-   WARNING: Do not use the development server in a production environment.
-   Use a production WSGI server instead.
- * Debug mode: off
- * Running on http://0.0.0.0:5000/ (Press CTRL+C to quit)
- ```
+5. **Update the firewall**:
+   ```bash
+   sudo ufw delete allow 5000
+   sudo ufw allow 'Nginx Full'
+   ```
 
- Now we can access the website by going to the server ip in a web browser.
+---
 
- ## End of Example
+## Enabling HTTPS with Certbot
 
- Now we need to create the wsgi entry pooint.
+1. **Install Certbot**:
+   ```bash
+   sudo apt install certbot python3-certbot-nginx
+   ```
 
-```bash
-nano ~/pythonwebsite/wsgi.py
-```
+2. **Generate an SSL certificate**:
+   ```bash
+   sudo certbot --nginx -d your_domain -d www.your_domain
+   ```
 
-Here is some example code for the wsgi entry point.
+3. **Choose the redirect option**: Select `2` to redirect HTTP traffic to HTTPS.
 
-```python
-from pythonwebsite import app
+4. **Remove HTTP access from the firewall**:
+   ```bash
+   sudo ufw delete allow 'Nginx HTTP'
+   ```
 
-if __name__ == "__main__":
-    app.run()
-```
+---
 
-To test if the entry point is working we can run the following command.
+## Final Steps
 
-```bash
-uwsgi --socket 0.0.0.0:5000 --protocol=http -w wsgi:app
-```
+Visit your website in a browser using `https://your_domain`. Congratulations! Your HTTPS-enabled Python website is now live.
 
-Press CTRL+C to quit
-
-Now we can leave the virtual environment.
-
-```bash
-deactivate
-```
-
-Now we need to create the ini file for the website.
-
-```bash
-nano ~/pythonwebsite/pythonwebsite.ini
-```
-
-Here is some example code for the ini file.
-
-```ini
-[uwsgi]
-module = wsgi:app
-
-master = true
-processes = 5
-
-socket = pythonwebsite.sock
-chmod-socket = 660
-vacuum = true
-
-die-on-term = true
-```
-
-Now we need to create the systemd service.
-
-```bash
-sudo nano /etc/systemd/system/pythonwebsite.service
-```
-
-Here is some example code for the systemd service.
-
-```service
-[Unit]
-Description=uWSGI instance to serve pythonwebsite
-After=network.target
-
-[Service]
-User=pythonwebsite
-Group=www-data
-WorkingDirectory=/home/pythonwebsite/pythonwebsite
-Environment="PATH=/home/pythonwebsite/pythonwebsite/pythonwebsiteenv/bin"
-ExecStart=/home/pythonwebsite/pythonwebsite/pythonwebsiteenv/bin/uwsgi --ini pythonwebsite.ini
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Now we need to start and enable the service.
-
-```bash
-sudo systemctl start pythonwebsite
-sudo systemctl enable pythonwebsite
-```
-
-We can check the status of the service with the following command.
-
-```bash
-sudo systemctl status pythonwebsite
-```
-
-Now we need to configure sites-available.
-
-```bash
-sudo nano /etc/nginx/sites-available/pythonwebsite
-```
-
-We can use the following code as a template. Replace the your_domain name with your own.
-
-```nginx
-server {
-    listen 80;
-    server_name your_domain www.your_domain;
-
-    location / {
-        include uwsgi_params;
-        uwsgi_pass unix:/home/pythonwebsite/pythonwebsite/pythonwebsite.sock;
-    }
-}
-```
-
-Now we need to create a symlink to sites-enabled.
-
-```bash
-sudo ln -s /etc/nginx/sites-available/pythonwebsite /etc/nginx/sites-enabled
-```
-
-Now we need to remove the default symlink.
-
-```bash
-sudo rm /etc/nginx/sites-enabled/default
-```
-
-now we need to restart nginx.
-
-```bash
-sudo systemctl restart nginx
-```
-
-Now we need to allow port 80 in the firewall and remove port 5000.
-
-```bash
-sudo ufw delete allow 5000
-sudo ufw allow 'Nginx Full'
-```
-
-Now we can test the website by going to the server ip in a web browser.
-
-Now we need to install certbot.
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-```
-
-Now we need to generate the certificate. Replace the your_domain name with your own.
-
-```bash
-sudo certbot --nginx -d your_domain -d www.your_domain
-```
-
-Now certbot will ask you a few questions.
-
-```bash
-Please choose whether or not to redirect HTTP traffic to HTTPS, removing HTTP access.
-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-1: No redirect - Make no further changes to the webserver configuration.
-2: Redirect - Make all requests redirect to secure HTTPS access. Choose this for
-new sites, or if you're confident your site works on HTTPS. You can undo this
-change by editing your web server's configuration.
-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Select the appropriate number [1-2] then [enter] (press 'c' to cancel):
-``` 
-
-Choose 2 and press enter.
-
-```bash
-IMPORTANT NOTES:
- - Congratulations! Your certificate and chain have been saved at:
-   /etc/letsencrypt/live/your_domain/fullchain.pem
-   Your key file has been saved at:
-   /etc/letsencrypt/live/your_domain/privkey.pem
-   Your cert will expire on 2020-08-18. To obtain a new or tweaked
-   version of this certificate in the future, simply run certbot again
-   with the "certonly" option. To non-interactively renew *all* of
-   your certificates, run "certbot renew"
- - Your account credentials have been saved in your Certbot
-   configuration directory at /etc/letsencrypt. You should make a
-   secure backup of this folder now. This configuration directory will
-   also contain certificates and private keys obtained by Certbot so
-   making regular backups of this folder is ideal.
- - If you like Certbot, please consider supporting our work by:
-
-   Donating to ISRG / Let's Encrypt:   https://letsencrypt.org/donate
-   Donating to EFF:                    https://eff.org/donate-le
-```
-
-Now we can remoove the http Nginx accsess from the firewall.
-
-```bash
-sudo ufw delete allow 'Nginx HTTP'
-```
-
-Finaly we can visit your website in a web browser.
-
-```bash
-https://your_domain
-```
